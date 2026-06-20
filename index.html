@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+<title>Protocol</title>
+
+<!-- PWA -->
+<link rel="manifest" href="manifest.webmanifest" />
+<meta name="theme-color" content="#0c0d10" />
+
+<!-- iOS home-screen / standalone -->
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Protocol" />
+<link rel="apple-touch-icon" href="icon-192.png" />
+
+<style>
+  html, body { margin:0; padding:0; background:#0c0d10; color:#f2f3f5;
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    /* respect the notch */ padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  #root { min-height: 100vh; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- React from CDN (cached by the service worker after first load) -->
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+
+<!-- on-device storage shim: the app calls window.storage.{get,set,list};
+     in the Claude artifact that's provided, on a real phone we back it with localStorage -->
+<script>
+if (!window.storage) {
+  window.storage = {
+    async get(key) {
+      const v = localStorage.getItem(key);
+      return v === null ? null : { key: key, value: v };
+    },
+    async set(key, value) {
+      localStorage.setItem(key, value);
+      return { key: key, value: value };
+    },
+    async list(prefix) {
+      const keys = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.indexOf(prefix) === 0) keys.push(k);
+      }
+      return { keys: keys };
+    },
+    async delete(key) {
+      localStorage.removeItem(key);
+      return { key: key, deleted: true };
+    }
+  };
+}
+</script>
+
+<!-- the app -->
+<script src="app.js"></script>
+
+<!-- register service worker for offline use -->
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", function () {
+      navigator.serviceWorker.register("sw.js").catch(function (e) { console.warn("SW failed", e); });
+    });
+  }
+</script>
+</body>
+</html>
