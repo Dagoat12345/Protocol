@@ -555,7 +555,7 @@ const DEFAULT_PROGRAM = {
     }]
   }
 };
-const CYCLE = ["push", "pull", "legs", "rest"];
+const PPL = ["push", "pull", "legs"];
 
 // ---- storage helpers -------------------------------------------------------
 const store = {
@@ -1048,47 +1048,38 @@ function SetStep({
 // ---- schedule --------------------------------------------------------------
 function Schedule({
   program,
+  cyclePos,
   onStart
 }) {
-  const today = new Date();
-  const days = [];
-  for (let k = 0; k < 8; k++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() + k);
-    days.push({
-      d,
-      key: CYCLE[k % 4],
-      off: k
-    });
-  }
+  // Rolling Push → Pull → Legs queue. No calendar, no forced rest days:
+  // position 0 is what's up next, the rest show the order ahead. You can
+  // start any of them any day; finishing one advances the pointer.
+  const order = [0, 1, 2].map(i => PPL[(cyclePos + i) % PPL.length]);
+  const labels = ["UP NEXT", "THEN", "THEN"];
   return /*#__PURE__*/React.createElement("div", {
     className: "schedule"
   }, /*#__PURE__*/React.createElement("h2", {
     className: "big-title"
   }, "Your cycle"), /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, "Push → Pull → Legs → Rest, repeating"), days.map((x, k) => {
-    const p = x.key === "rest" ? null : program[x.key];
+  }, "Push → Pull → Legs, on repeat. Train any day — just keep the order."), order.map((key, i) => {
+    const p = program[key];
     return /*#__PURE__*/React.createElement("div", {
-      key: k,
-      className: "srow" + (k === 0 ? " stoday" : "") + (x.key === "rest" ? " srest" : "")
+      key: key,
+      className: "srow" + (i === 0 ? " stoday" : " supcoming")
     }, /*#__PURE__*/React.createElement("div", {
       className: "sdate"
     }, /*#__PURE__*/React.createElement("span", {
       className: "sday"
-    }, k === 0 ? "TODAY" : k === 1 ? "TMRW" : x.d.toLocaleDateString(undefined, {
-      weekday: "short"
-    })), /*#__PURE__*/React.createElement("span", {
-      className: "snum"
-    }, x.d.getDate())), /*#__PURE__*/React.createElement("div", {
+    }, labels[i])), /*#__PURE__*/React.createElement("div", {
       className: "sinfo"
     }, /*#__PURE__*/React.createElement("span", {
       className: "sname"
-    }, x.key === "rest" ? "Rest" : p.name), /*#__PURE__*/React.createElement("span", {
+    }, p.name), /*#__PURE__*/React.createElement("span", {
       className: "smeta"
-    }, x.key === "rest" ? "Recover. Sleep. Eat." : p.sub)), x.key !== "rest" && k === 0 && /*#__PURE__*/React.createElement("button", {
-      className: "sgo",
-      onClick: () => onStart(x.key)
+    }, p.sub)), /*#__PURE__*/React.createElement("button", {
+      className: i === 0 ? "sgo" : "sgo sgo-ghost",
+      onClick: () => onStart(key)
     }, "Start"));
   }));
 }
@@ -1310,6 +1301,7 @@ function Editor({
 function App() {
   const [program, setProgram] = useState(DEFAULT_PROGRAM);
   const [history, setHistory] = useState({});
+  const [cyclePos, setCyclePos] = useState(0); // index into PPL: which workout is up next
   const [view, setView] = useState("schedule"); // schedule | progress | edit
   const [active, setActive] = useState(null);
   const [ready, setReady] = useState(false);
@@ -1328,6 +1320,8 @@ function App() {
     (async () => {
       const savedProg = await store.get("program");
       if (savedProg) setProgram(savedProg);
+      const savedPos = await store.get("cyclePos");
+      if (typeof savedPos === "number") setCyclePos(savedPos);
       const keys = await store.list("sets:");
       const h = {};
       for (const k of keys) {
@@ -1368,6 +1362,11 @@ function App() {
       await store.set(key, hist);
     }
     setHistory(newH);
+    // advance the cycle: next up is whatever follows the one just finished,
+    // so the Push → Pull → Legs order is always preserved.
+    const nextPos = (PPL.indexOf(dayKey) + 1) % PPL.length;
+    setCyclePos(nextPos);
+    await store.set("cyclePos", nextPos);
   };
   const exportData = () => {
     const blob = new Blob([JSON.stringify({
@@ -1417,6 +1416,7 @@ function App() {
     onClick: () => setView(k)
   }, l))), /*#__PURE__*/React.createElement("main", null, view === "schedule" && /*#__PURE__*/React.createElement(Schedule, {
     program: program,
+    cyclePos: cyclePos,
     onStart: k => setActive(k)
   }), view === "progress" && /*#__PURE__*/React.createElement(Progress, {
     history: history
@@ -1446,6 +1446,8 @@ main{padding:14px 18px 40px;}
 .snum{font-size:23px;font-weight:800;line-height:1;} .sinfo{flex:1;display:flex;flex-direction:column;}
 .sname{font-size:16px;font-weight:750;} .smeta{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;}
 .sgo{background:var(--accent);color:var(--bg);border:none;border-radius:100px;padding:10px 20px;font-weight:800;cursor:pointer;}
+.sgo-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line);}
+.supcoming{opacity:0.62;}
 .session{display:flex;flex-direction:column;min-height:100vh;}
 .session-top{display:flex;align-items:center;gap:14px;padding:16px 18px;}
 .exit{background:var(--surface-2);border:1px solid var(--line);color:var(--text);width:34px;height:34px;border-radius:10px;cursor:pointer;flex-shrink:0;}
