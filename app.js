@@ -56,28 +56,44 @@ const DEFAULT_PROGRAM = {
         rest: 60
       }, {
         weight: 17.5,
+        reps: 13,
+        rest: 60
+      }, {
+        weight: 17.5,
         reps: 7,
-        rest: 120
+        rest: 60
+      }, {
+        weight: 17.5,
+        reps: 6,
+        rest: 60
       }]
     }, {
       id: "flat_bench",
-      name: "Flat Bench (Machine)",
-      cue: "Setting #25, no pulley",
+      name: "Flat Bench",
+      cue: "Barbell · weights shown are total (incl. 20kg bar)",
       demo: "press",
       video: "Flat-Bench-Press.mp4",
       sets: [{
         warmup: true,
-        weight: 5,
+        weight: 30,
         reps: 10,
         rest: 45
       }, {
-        weight: 10,
-        reps: 8,
-        rest: 90
+        weight: 40,
+        reps: 12,
+        rest: 60
       }, {
-        weight: 8,
-        reps: 10,
-        rest: 90
+        weight: 40,
+        reps: 5,
+        rest: 60
+      }, {
+        weight: 36,
+        reps: 12,
+        rest: 60
+      }, {
+        weight: 36,
+        reps: 6,
+        rest: 60
       }]
     }, {
       id: "shoulder_press",
@@ -96,53 +112,79 @@ const DEFAULT_PROGRAM = {
         reps: 9,
         rest: 60
       }, {
+        warmup: true,
+        weight: 10,
+        reps: 12,
+        rest: 60
+      }, {
+        weight: 10,
+        reps: 19,
+        rest: 60
+      }, {
         weight: 10,
         reps: 14,
-        rest: 120
+        rest: 60
+      }, {
+        weight: 10,
+        reps: 12,
+        rest: 60
       }]
     }, {
       id: "lateral",
       name: "Cable Lateral Raises",
-      cue: "Straight-arm, handle on 3",
+      cue: "Straight-arm · top of handle on 3",
       demo: "lateral",
       video: "Cable_Lat_Raise.mp4",
       sets: [{
         weight: 5,
+        reps: 12,
+        rest: 60
+      }, {
+        weight: 5,
         reps: 10,
+        rest: 60
+      }, {
+        weight: 5,
+        reps: 8,
         rest: 60
       }]
     }, {
       id: "rear_delt",
       name: "Katana Pull (Rear Delts)",
-      cue: "Handle on 23",
+      cue: "Cable rear delts · top of handle on 23",
       demo: "row",
       video: "Cable_Rear_Delt_Fly.mp4",
       sets: [{
         weight: 10,
+        reps: 12,
+        rest: 60
+      }, {
+        weight: 10,
         reps: 9,
+        rest: 60
+      }, {
+        weight: 10,
+        reps: 8,
         rest: 60
       }]
     }, {
-      id: "ext_rotator",
-      name: "External Rotator Cuffs",
-      cue: "14 on top, D handle",
-      demo: "rotator",
-      video: "External_Rotator_Cuff.mp4",
-      sets: [{
-        weight: 5,
-        reps: 16,
-        rest: 45
-      }]
-    }, {
-      id: "decline_tri",
-      name: "Decline EZ-Bar (Triceps)",
-      cue: "1 from highest",
+      id: "skull_crusher",
+      name: "Skull Crushers (Triceps)",
+      cue: "Flat bench · EZ curl bar · 5kg each side",
       demo: "pushdown",
       video: "Skull_Crusher.mp4",
       sets: [{
         weight: 5,
-        reps: 8,
-        rest: 90
+        reps: 10,
+        rest: 60
+      }, {
+        weight: 5,
+        reps: 7,
+        rest: 60
+      }, {
+        weight: 5,
+        reps: 6,
+        rest: 60
       }]
     }, {
       id: "tri_rope",
@@ -157,8 +199,16 @@ const DEFAULT_PROGRAM = {
         rest: 45
       }, {
         weight: 10,
+        reps: 8,
+        rest: 60
+      }, {
+        weight: 10,
         reps: 7,
-        rest: 90
+        rest: 60
+      }, {
+        weight: 10,
+        reps: 6,
+        rest: 60
       }]
     }],
     stretches: [{
