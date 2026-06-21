@@ -1201,14 +1201,18 @@ function SetStep({
 function Schedule({
   program,
   cyclePos,
+  cycleDays,
   history,
-  onStart
+  onStart,
+  onRemoveDay,
+  onAddDay
 }) {
-  // Rolling Push → Pull → Legs queue. No calendar, no forced rest days:
-  // position 0 is what's up next, the rest show the order ahead. You can
-  // start any of them any day; finishing one advances the pointer.
-  const order = [0, 1, 2].map(i => PPL[(cyclePos + i) % PPL.length]);
-  const labels = ["UP NEXT", "THEN", "THEN"];
+  // Rolling queue over the ACTIVE days. Position 0 is up next; the rest show
+  // the order ahead. Days can be dropped from the cycle (✕) and added back.
+  const days = cycleDays && cycleDays.length ? cycleDays : PPL;
+  const len = days.length;
+  const order = days.map((_, i) => days[(cyclePos + i) % len]);
+  const removed = PPL.filter(k => !days.includes(k));
   const stats = useMemo(() => computeStats(history), [history]);
   const recent = stats.sessions.slice(0, 5);
   const stat = (num, label) => /*#__PURE__*/React.createElement("div", {
@@ -1224,7 +1228,7 @@ function Schedule({
     className: "big-title"
   }, "Your cycle"), /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, "Push → Pull → Legs, on repeat. Train any day — just keep the order."), /*#__PURE__*/React.createElement("div", {
+  }, days.map(k => program[k].name).join(" → "), ", on repeat. Train any day — just keep the order."), /*#__PURE__*/React.createElement("div", {
     className: "statbar"
   }, stat((stats.streak > 0 ? "🔥 " : "") + stats.streak, "day streak"), stat(stats.weekCount, "this week"), stat(fmtVol(stats.weekVolume), "kg this wk")), order.map((key, i) => {
     const p = program[key];
@@ -1235,17 +1239,40 @@ function Schedule({
       className: "sdate"
     }, /*#__PURE__*/React.createElement("span", {
       className: "sday"
-    }, labels[i])), /*#__PURE__*/React.createElement("div", {
+    }, i === 0 ? "UP NEXT" : "THEN")), /*#__PURE__*/React.createElement("div", {
       className: "sinfo"
     }, /*#__PURE__*/React.createElement("span", {
       className: "sname"
     }, p.name), /*#__PURE__*/React.createElement("span", {
       className: "smeta"
-    }, p.sub)), /*#__PURE__*/React.createElement("button", {
+    }, p.sub)), /*#__PURE__*/React.createElement("div", {
+      className: "srow-actions"
+    }, /*#__PURE__*/React.createElement("button", {
       className: i === 0 ? "sgo" : "sgo sgo-ghost",
       onClick: () => onStart(key)
-    }, "Start"));
-  }), recent.length > 0 && /*#__PURE__*/React.createElement("div", {
+    }, "Start"), len > 1 && /*#__PURE__*/React.createElement("button", {
+      className: "sremove",
+      title: "Remove from cycle",
+      "aria-label": "Remove " + p.name + " from cycle",
+      onClick: () => onRemoveDay(key)
+    }, "✕")));
+  }), removed.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "removed-cycle"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "chart-cap"
+  }, "Not in cycle"), removed.map(key => /*#__PURE__*/React.createElement("div", {
+    key: key,
+    className: "srow supcoming"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "sinfo"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "sname"
+  }, program[key].name), /*#__PURE__*/React.createElement("span", {
+    className: "smeta"
+  }, program[key].sub)), /*#__PURE__*/React.createElement("button", {
+    className: "sgo sgo-ghost",
+    onClick: () => onAddDay(key)
+  }, "Add back")))), recent.length > 0 && /*#__PURE__*/React.createElement("div", {
     className: "slog"
   }, /*#__PURE__*/React.createElement("p", {
     className: "chart-cap"
@@ -1479,7 +1506,8 @@ function Editor({
 function App() {
   const [program, setProgram] = useState(DEFAULT_PROGRAM);
   const [history, setHistory] = useState({});
-  const [cyclePos, setCyclePos] = useState(0); // index into PPL: which workout is up next
+  const [cyclePos, setCyclePos] = useState(0); // index into cycleDays: which workout is up next
+  const [cycleDays, setCycleDays] = useState(PPL); // active days in the rotation (subset of PPL, in order)
   const [view, setView] = useState("schedule"); // schedule | progress | edit
   const [active, setActive] = useState(null);
   const [ready, setReady] = useState(false);
@@ -1500,6 +1528,11 @@ function App() {
       if (savedProg) setProgram(savedProg);
       const savedPos = await store.get("cyclePos");
       if (typeof savedPos === "number") setCyclePos(savedPos);
+      const savedDays = await store.get("cycleDays");
+      if (Array.isArray(savedDays)) {
+        const valid = savedDays.filter(k => PPL.includes(k));
+        if (valid.length) setCycleDays(valid);
+      }
       const keys = await store.list("sets:");
       const h = {};
       for (const k of keys) {
@@ -1541,10 +1574,34 @@ function App() {
     }
     setHistory(newH);
     // advance the cycle: next up is whatever follows the one just finished,
-    // so the Push → Pull → Legs order is always preserved.
-    const nextPos = (PPL.indexOf(dayKey) + 1) % PPL.length;
+    // among the ACTIVE days, so the order is always preserved.
+    const base = cycleDays.includes(dayKey) ? cycleDays : PPL;
+    const nextPos = (base.indexOf(dayKey) + 1) % base.length;
     setCyclePos(nextPos);
     await store.set("cyclePos", nextPos);
+  };
+  // drop a day from the rotation (keep at least one), preserving what's "up next"
+  const removeDay = async key => {
+    if (cycleDays.length <= 1) return;
+    const upNext = cycleDays[cyclePos % cycleDays.length];
+    const newDays = cycleDays.filter(k => k !== key);
+    let newPos = newDays.indexOf(upNext);
+    if (newPos < 0) newPos = cyclePos % newDays.length; // removed the up-next day
+    setCycleDays(newDays);
+    setCyclePos(newPos);
+    await store.set("cycleDays", newDays);
+    await store.set("cyclePos", newPos);
+  };
+  // add a day back, re-inserting it in canonical Push → Pull → Legs order
+  const addDay = async key => {
+    if (cycleDays.includes(key)) return;
+    const upNext = cycleDays.length ? cycleDays[cyclePos % cycleDays.length] : key;
+    const newDays = PPL.filter(k => cycleDays.includes(k) || k === key);
+    const newPos = Math.max(0, newDays.indexOf(upNext));
+    setCycleDays(newDays);
+    setCyclePos(newPos);
+    await store.set("cycleDays", newDays);
+    await store.set("cyclePos", newPos);
   };
   const exportData = () => {
     const blob = new Blob([JSON.stringify({
@@ -1595,8 +1652,11 @@ function App() {
   }, l))), /*#__PURE__*/React.createElement("main", null, view === "schedule" && /*#__PURE__*/React.createElement(Schedule, {
     program: program,
     cyclePos: cyclePos,
+    cycleDays: cycleDays,
     history: history,
-    onStart: k => setActive(k)
+    onStart: k => setActive(k),
+    onRemoveDay: removeDay,
+    onAddDay: addDay
   }), view === "progress" && /*#__PURE__*/React.createElement(Progress, {
     history: history
   }), view === "edit" && /*#__PURE__*/React.createElement(Editor, {
@@ -1627,6 +1687,9 @@ main{padding:14px 18px 40px;}
 .sgo{background:var(--accent);color:var(--bg);border:none;border-radius:100px;padding:10px 20px;font-weight:800;cursor:pointer;}
 .sgo-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line);}
 .supcoming{opacity:0.62;}
+.srow-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.sremove{background:transparent;border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;}
+.removed-cycle{margin-top:18px;}
 .statbar{display:flex;gap:10px;margin:14px 0 4px;}
 .stat{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;}
 .stat-num{font-size:22px;font-weight:850;letter-spacing:-0.02em;}

@@ -1,6 +1,6 @@
 // Protocol service worker — offline caching.
 // Bump CACHE version whenever you change app files so clients update.
-const CACHE = "protocol-v6";
+const CACHE = "protocol-v7";
 
 // App shell + CDN libs. Videos are cached on first play (runtime cache below).
 const SHELL = [
