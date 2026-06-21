@@ -718,6 +718,54 @@ function suggestNext(lastWeight, feeling) {
   return lastWeight;
 }
 
+// ---- training stats: streaks, weekly load, session log ---------------------
+// History is keyed `sets:<dayKey>:<exId>` -> [{date, sets, durationS}]. Several
+// exercises share one session date, so we regroup into whole-session records.
+const DAY_MS = 86400000;
+function dateToDayNum(d) {
+  const [y, m, dd] = d.split("-").map(Number);
+  return Math.floor(Date.UTC(y, m - 1, dd) / DAY_MS);
+}
+function computeStats(history) {
+  const byKey = {}; // `${date}|${dayKey}` -> aggregated session
+  for (const k of Object.keys(history)) {
+    const dayKey = k.split(":")[1];
+    for (const sess of history[k] || []) {
+      const id = `${sess.date}|${dayKey}`;
+      if (!byKey[id]) byKey[id] = { date: sess.date, dayKey, volume: 0, sets: 0 };
+      for (const s of sess.sets) {
+        byKey[id].volume += (s.weight || 0) * (s.reps || 0);
+        byKey[id].sets += 1;
+      }
+    }
+  }
+  const sessions = Object.values(byKey).sort((a, b) => (a.date < b.date ? 1 : -1)); // newest first
+  const dates = [...new Set(sessions.map(s => s.date))].map(dateToDayNum).sort((a, b) => a - b);
+  // day streak: consecutive calendar days with a session, ending today or yesterday
+  let streak = 0;
+  if (dates.length) {
+    const today = Math.floor(Date.now() / DAY_MS);
+    if (today - dates[dates.length - 1] <= 1) {
+      streak = 1;
+      for (let j = dates.length - 2; j >= 0; j--) {
+        if (dates[j + 1] - dates[j] === 1) streak++;else break;
+      }
+    }
+  }
+  const weekAgo = Math.floor(Date.now() / DAY_MS) - 6;
+  let weekCount = 0, weekVolume = 0;
+  for (const s of sessions) {
+    if (dateToDayNum(s.date) >= weekAgo) {
+      weekCount++;
+      weekVolume += s.volume;
+    }
+  }
+  return { sessions, streak, weekCount, weekVolume };
+}
+function fmtVol(v) {
+  return v >= 1000 ? (v / 1000).toFixed(1) + "k" : String(Math.round(v));
+}
+
 // ---- rest timer with alarm + vibration + wake lock -------------------------
 function RestTimer({
   seconds,
@@ -850,6 +898,7 @@ function Session({
   const steps = useMemo(() => buildSteps(day), [day]);
   const [i, setI] = useState(0);
   const [logged, setLogged] = useState({}); // exId -> [{weight,reps,feeling}]
+  const [summary, setSummary] = useState(null); // computed at finish for the done screen
   const startRef = useRef(Date.now());
   const step = steps[i];
   const next = useCallback(() => setI(x => Math.min(x + 1, steps.length - 1)), [steps.length]);
@@ -871,6 +920,24 @@ function Session({
   };
   const finish = async () => {
     const durationS = Math.round((Date.now() - startRef.current) / 1000);
+    // build the done-screen summary BEFORE saving, so PRs compare against
+    // prior history (onSave merges this session into history).
+    const flat = Object.values(logged).flat().filter(Boolean);
+    const volume = flat.reduce((a, s) => a + (s.weight || 0) * (s.reps || 0), 0);
+    const setCount = flat.length;
+    const prs = [];
+    for (const ex of day.exercises) {
+      const mine = (logged[ex.id] || []).filter(Boolean);
+      if (!mine.length) continue;
+      const myBest = Math.max(...mine.map(s => s.weight || 0));
+      if (myBest <= 0) continue;
+      let prevBest = 0;
+      (history[`sets:${dayKey}:${ex.id}`] || []).forEach(se => se.sets.forEach(s => {
+        if ((s.weight || 0) > prevBest) prevBest = s.weight || 0;
+      }));
+      if (myBest > prevBest) prs.push({ name: ex.name, weight: myBest });
+    }
+    setSummary({ volume, setCount, prs, durationS });
     await onSave(logged, durationS);
     next();
   };
@@ -937,11 +1004,35 @@ function Session({
       className: "detail"
     }, step.s.detail));
   } else if (step.type === "done") {
+    const mm = summary ? Math.floor(summary.durationS / 60) : 0;
+    const ss = summary ? String(summary.durationS % 60).padStart(2, "0") : "00";
     body = /*#__PURE__*/React.createElement("div", {
       className: "step"
     }, /*#__PURE__*/React.createElement("span", {
       className: "eyebrow"
-    }, "Done"), /*#__PURE__*/React.createElement("h1", null, "Session saved"), /*#__PURE__*/React.createElement("p", null, step.name, " day logged. Cycle moves on tomorrow."), /*#__PURE__*/React.createElement("button", {
+    }, "Done"), /*#__PURE__*/React.createElement("h1", null, "Session saved"), summary && summary.prs.length > 0 && /*#__PURE__*/React.createElement("div", {
+      className: "prbanner"
+    }, "🏆 New PR — ", summary.prs.map(p => `${p.name} ${p.weight}kg`).join(" · ")), summary && /*#__PURE__*/React.createElement("div", {
+      className: "donestats"
+    }, /*#__PURE__*/React.createElement("div", {
+      className: "donestat"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "stat-num"
+    }, fmtVol(summary.volume)), /*#__PURE__*/React.createElement("span", {
+      className: "stat-label"
+    }, "kg volume")), /*#__PURE__*/React.createElement("div", {
+      className: "donestat"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "stat-num"
+    }, summary.setCount), /*#__PURE__*/React.createElement("span", {
+      className: "stat-label"
+    }, "sets")), /*#__PURE__*/React.createElement("div", {
+      className: "donestat"
+    }, /*#__PURE__*/React.createElement("span", {
+      className: "stat-num"
+    }, mm, ":", ss), /*#__PURE__*/React.createElement("span", {
+      className: "stat-label"
+    }, "time"))), /*#__PURE__*/React.createElement("p", null, step.name, " day logged. Next up in your cycle is ready."), /*#__PURE__*/React.createElement("button", {
       className: "big",
       onClick: onExit
     }, "Back to schedule"));
@@ -1049,6 +1140,7 @@ function SetStep({
 function Schedule({
   program,
   cyclePos,
+  history,
   onStart
 }) {
   // Rolling Push → Pull → Legs queue. No calendar, no forced rest days:
@@ -1056,13 +1148,24 @@ function Schedule({
   // start any of them any day; finishing one advances the pointer.
   const order = [0, 1, 2].map(i => PPL[(cyclePos + i) % PPL.length]);
   const labels = ["UP NEXT", "THEN", "THEN"];
+  const stats = useMemo(() => computeStats(history), [history]);
+  const recent = stats.sessions.slice(0, 5);
+  const stat = (num, label) => /*#__PURE__*/React.createElement("div", {
+    className: "stat"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "stat-num"
+  }, num), /*#__PURE__*/React.createElement("span", {
+    className: "stat-label"
+  }, label));
   return /*#__PURE__*/React.createElement("div", {
     className: "schedule"
   }, /*#__PURE__*/React.createElement("h2", {
     className: "big-title"
   }, "Your cycle"), /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, "Push → Pull → Legs, on repeat. Train any day — just keep the order."), order.map((key, i) => {
+  }, "Push → Pull → Legs, on repeat. Train any day — just keep the order."), /*#__PURE__*/React.createElement("div", {
+    className: "statbar"
+  }, stat((stats.streak > 0 ? "🔥 " : "") + stats.streak, "day streak"), stat(stats.weekCount, "this week"), stat(fmtVol(stats.weekVolume), "kg this wk")), order.map((key, i) => {
     const p = program[key];
     return /*#__PURE__*/React.createElement("div", {
       key: key,
@@ -1081,7 +1184,21 @@ function Schedule({
       className: i === 0 ? "sgo" : "sgo sgo-ghost",
       onClick: () => onStart(key)
     }, "Start"));
-  }));
+  }), recent.length > 0 && /*#__PURE__*/React.createElement("div", {
+    className: "slog"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "chart-cap"
+  }, "Recent sessions"), recent.map((s, k) => /*#__PURE__*/React.createElement("div", {
+    className: "slog-row",
+    key: k
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "slog-name"
+  }, program[s.dayKey] ? program[s.dayKey].name : s.dayKey), /*#__PURE__*/React.createElement("span", {
+    className: "slog-meta"
+  }, new Date(s.date + "T00:00:00").toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric"
+  }), " · ", s.sets, " sets · ", fmtVol(s.volume), " kg")))));
 }
 
 // ---- progress / charts -----------------------------------------------------
@@ -1417,6 +1534,7 @@ function App() {
   }, l))), /*#__PURE__*/React.createElement("main", null, view === "schedule" && /*#__PURE__*/React.createElement(Schedule, {
     program: program,
     cyclePos: cyclePos,
+    history: history,
     onStart: k => setActive(k)
   }), view === "progress" && /*#__PURE__*/React.createElement(Progress, {
     history: history
@@ -1448,6 +1566,17 @@ main{padding:14px 18px 40px;}
 .sgo{background:var(--accent);color:var(--bg);border:none;border-radius:100px;padding:10px 20px;font-weight:800;cursor:pointer;}
 .sgo-ghost{background:var(--surface-2);color:var(--text);border:1px solid var(--line);}
 .supcoming{opacity:0.62;}
+.statbar{display:flex;gap:10px;margin:14px 0 4px;}
+.stat{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.stat-num{font-size:22px;font-weight:850;letter-spacing:-0.02em;}
+.stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;text-align:center;}
+.slog{margin-top:22px;}
+.slog-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-top:8px;}
+.slog-name{font-size:14px;font-weight:750;}
+.slog-meta{font-size:11px;color:var(--muted);}
+.donestats{display:flex;gap:10px;margin:18px 0;}
+.donestat{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:16px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;}
+.prbanner{background:var(--surface-2);border:1px solid var(--accent);color:var(--text);border-radius:12px;padding:12px 14px;font-weight:800;font-size:14px;margin:16px 0 2px;}
 .session{display:flex;flex-direction:column;min-height:100vh;}
 .session-top{display:flex;align-items:center;gap:14px;padding:16px 18px;}
 .exit{background:var(--surface-2);border:1px solid var(--line);color:var(--text);width:34px;height:34px;border-radius:10px;cursor:pointer;flex-shrink:0;}
