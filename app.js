@@ -168,6 +168,17 @@ const DEFAULT_PROGRAM = {
         rest: 60
       }]
     }, {
+      id: "ext_rotator",
+      name: "External Rotator Cuffs",
+      cue: "14 on top, D handle",
+      demo: "rotator",
+      video: "External_Rotator_Cuff.mp4",
+      sets: [{
+        weight: 5,
+        reps: 16,
+        rest: 45
+      }]
+    }, {
       id: "skull_crusher",
       name: "Skull Crushers (Triceps)",
       cue: "Flat bench · EZ curl bar · 5kg each side",
