@@ -1,6 +1,6 @@
 // Protocol service worker — offline caching.
 // Bump CACHE version whenever you change app files so clients update.
-const CACHE = "protocol-v10";
+const CACHE = "protocol-v11";
 
 // App shell + CDN libs. Videos are cached on first play (runtime cache below).
 const SHELL = [
@@ -29,6 +29,30 @@ self.addEventListener("activate", (e) => {
       Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k)))
     ).then(() => self.clients.claim())
   );
+});
+
+// Web Push: rest-timer alarm fired by the scheduler Worker (works locked/closed).
+self.addEventListener("push", (e) => {
+  let data = {};
+  try { data = e.data ? e.data.json() : {}; } catch (_) {}
+  const title = data.title || "Rest's up";
+  const body = data.body || "Time for your next set 💪";
+  e.waitUntil(self.registration.showNotification(title, {
+    body,
+    icon: "./icon-192.png",
+    badge: "./icon-192.png",
+    tag: "rest-timer",
+    renotify: true,
+    requireInteraction: true,
+    vibrate: [300, 120, 300, 120, 300],
+  }));
+});
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((cls) => {
+    for (const c of cls) { if ("focus" in c) return c.focus(); }
+    if (self.clients.openWindow) return self.clients.openWindow("./");
+  }));
 });
 
 // Videos: cache-first (big, immutable — load once then stay offline).

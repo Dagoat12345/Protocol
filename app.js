@@ -791,6 +791,79 @@ function suggestNext(lastWeight, feeling) {
   return lastWeight;
 }
 
+// ---- background rest-timer push (fires even when the phone is locked) ------
+// VAPID public key is safe to embed; the scheduler Worker holds the private key.
+const PUSH_VAPID_PUBLIC = "BIAF6vk3vuZhX77IOc0i3EQs3xVwmCLNop-0ZJHG9otYkwlOK_dxmU8t8Xi9yRamHFvtTV7mGrCKnfKzAUVNK_8";
+const PUSH_WORKER_URL = "https://protocol-push.protocol-kabir.workers.dev"; // scheduler Worker
+function pushConfigured() {
+  return PUSH_WORKER_URL && PUSH_WORKER_URL.indexOf("__") !== 0;
+}
+function pushPermission() {
+  return typeof Notification !== "undefined" ? Notification.permission : "unsupported";
+}
+function pushClientId() {
+  let id = localStorage.getItem("pushClientId");
+  if (!id) {
+    id = window.crypto && crypto.randomUUID ? crypto.randomUUID() : Date.now() + "-" + Math.random().toString(36).slice(2);
+    localStorage.setItem("pushClientId", id);
+  }
+  return id;
+}
+function urlB64ToUint8(b) {
+  const pad = "=".repeat((4 - b.length % 4) % 4);
+  const s = (b + pad).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(s);
+  const arr = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+  return arr;
+}
+async function getPushSubscription(allowSubscribe) {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || typeof Notification === "undefined") return null;
+  if (Notification.permission !== "granted") return null;
+  const reg = await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub && allowSubscribe) {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToUint8(PUSH_VAPID_PUBLIC) });
+  }
+  return sub;
+}
+// must be called from a user gesture (iOS requirement)
+async function requestPushPermission() {
+  if (typeof Notification === "undefined") return false;
+  try {
+    let p = Notification.permission;
+    if (p === "default") p = await Notification.requestPermission();
+    if (p !== "granted") return false;
+    return !!(await getPushSubscription(true));
+  } catch (_) {
+    return false;
+  }
+}
+async function schedulePush(delaySeconds, title, body) {
+  if (!pushConfigured()) return;
+  try {
+    const sub = await getPushSubscription(true);
+    if (!sub) return;
+    await fetch(PUSH_WORKER_URL + "/schedule", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ id: pushClientId(), subscription: sub.toJSON(), delaySeconds: Math.round(delaySeconds), title, body }),
+    });
+  } catch (_) {}
+}
+async function cancelPush() {
+  if (!pushConfigured()) return;
+  try {
+    await fetch(PUSH_WORKER_URL + "/cancel", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      keepalive: true,
+      body: JSON.stringify({ id: pushClientId() }),
+    });
+  } catch (_) {}
+}
+
 // ---- training stats: streaks, weekly load, session log ---------------------
 // History is keyed `sets:<dayKey>:<exId>` -> [{date, sets, durationS}]. Several
 // exercises share one session date, so we regroup into whole-session records.
@@ -860,10 +933,22 @@ function RestTimer({
       } catch {}
     };
   }, []);
+  // queue a background push for when this rest ends (fires even if the phone is
+  // locked / app closed). Cancelled if you advance while still in the app.
+  useEffect(() => {
+    schedulePush(seconds, "Rest's up", "Time for your next set 💪");
+    return () => {
+      cancelPush();
+    };
+  }, []);
   useEffect(() => {
     if (left <= 0) {
       if (!firedRef.current) {
         firedRef.current = true;
+        // if you're watching in-app, the beep is enough — drop the queued push
+        try {
+          if (typeof document !== "undefined" && !document.hidden) cancelPush();
+        } catch {}
         // vibration
         try {
           if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
@@ -904,17 +989,30 @@ function RestTimer({
     className: "rest-clock" + (done ? " rest-done" : "")
   }, done ? "GO" : `${mm}:${ss}`), /*#__PURE__*/React.createElement("p", {
     className: "rest-note"
-  }, "Alarm + vibration fire while the app is open. iOS can't reliably alarm when locked."), /*#__PURE__*/React.createElement("div", {
+  }, pushConfigured() && pushPermission() === "granted" ? "Lock-screen alarm is on — you'll get a buzz even if your phone is locked." : "Alarm + vibration fire while the app is open."), /*#__PURE__*/React.createElement("div", {
     className: "rest-controls"
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       firedRef.current = false;
-      setLeft(l => l + 30);
+      setLeft(l => {
+        const v = l + 30;
+        schedulePush(v, "Rest's up", "Time for your next set 💪");
+        return v;
+      });
     }
   }, "+30s"), /*#__PURE__*/React.createElement("button", {
     className: "rest-skip",
-    onClick: onDone
-  }, done ? "Next set" : "Skip")));
+    onClick: () => {
+      cancelPush();
+      onDone();
+    }
+  }, done ? "Next set" : "Skip")), pushConfigured() && pushPermission() !== "granted" && /*#__PURE__*/React.createElement("button", {
+    className: "rest-enable",
+    onClick: async () => {
+      const ok = await requestPushPermission();
+      if (ok) schedulePush(Math.max(left, 1), "Rest's up", "Time for your next set 💪");
+    }
+  }, "🔔 Alarm me on the lock screen"));
 }
 
 // ---- guided session --------------------------------------------------------
@@ -1801,6 +1899,7 @@ main{padding:14px 18px 40px;}
 .rest-controls{display:flex;gap:12px;justify-content:center;margin-top:18px;}
 .rest-controls button{background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:13px 26px;border-radius:100px;font-weight:700;cursor:pointer;}
 .rest-skip{background:var(--accent)!important;color:var(--bg)!important;border:none!important;}
+.rest-enable{display:block;margin:16px auto 0;background:transparent;border:1px solid var(--accent);color:var(--accent);padding:11px 20px;border-radius:100px;font-weight:700;font-size:13px;cursor:pointer;}
 .progress,.editor{padding-top:6px;}
 .ex-select{width:100%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:12px;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:14px;}
 .pr{background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-weight:800;margin-bottom:10px;}
