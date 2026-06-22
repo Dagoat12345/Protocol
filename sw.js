@@ -1,6 +1,6 @@
 // Protocol service worker — offline caching.
 // Bump CACHE version whenever you change app files so clients update.
-const CACHE = "protocol-v7";
+const CACHE = "protocol-v8";
 
 // App shell + CDN libs. Videos are cached on first play (runtime cache below).
 const SHELL = [
@@ -29,21 +29,35 @@ self.addEventListener("activate", (e) => {
   );
 });
 
-// Cache-first: serve from cache, fall back to network, and cache new GETs
-// (this is what makes videos load once then stay offline, saving data).
+// Videos: cache-first (big, immutable — load once then stay offline).
+// Everything else (app shell: html/js/manifest/CDN): network-first, so a new
+// deploy ALWAYS reaches the user when online; cache is only the offline fallback.
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
-  e.respondWith(
-    caches.match(e.request).then((hit) => {
-      if (hit) return hit;
-      return fetch(e.request).then((res) => {
-        // only cache successful, basic/cors responses
+  const url = new URL(e.request.url);
+  const isVideo = url.pathname.includes("/videos/") || url.pathname.endsWith(".mp4");
+
+  if (isVideo) {
+    e.respondWith(
+      caches.match(e.request).then((hit) => hit || fetch(e.request).then((res) => {
         if (res && res.status === 200) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         }
         return res;
-      }).catch(() => hit);
-    })
+      }))
+    );
+    return;
+  }
+
+  // network-first for the app shell
+  e.respondWith(
+    fetch(e.request).then((res) => {
+      if (res && res.status === 200) {
+        const copy = res.clone();
+        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+      }
+      return res;
+    }).catch(() => caches.match(e.request))
   );
 });

@@ -642,6 +642,14 @@ const store = {
     } catch {
       return [];
     }
+  },
+  async del(key) {
+    try {
+      if (window.storage.delete) await window.storage.delete(key);
+      else await window.storage.set(key, JSON.stringify(null));
+    } catch (e) {
+      console.error(e);
+    }
   }
 };
 
@@ -1205,7 +1213,8 @@ function Schedule({
   history,
   onStart,
   onRemoveDay,
-  onAddDay
+  onAddDay,
+  onDeleteSession
 }) {
   // Rolling queue over the ACTIVE days. Position 0 is up next; the rest show
   // the order ahead. Days can be dropped from the cycle (✕) and added back.
@@ -1279,6 +1288,8 @@ function Schedule({
   }, "Recent sessions"), recent.map((s, k) => /*#__PURE__*/React.createElement("div", {
     className: "slog-row",
     key: k
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "slog-info"
   }, /*#__PURE__*/React.createElement("span", {
     className: "slog-name"
   }, program[s.dayKey] ? program[s.dayKey].name : s.dayKey), /*#__PURE__*/React.createElement("span", {
@@ -1286,7 +1297,18 @@ function Schedule({
   }, new Date(s.date + "T00:00:00").toLocaleDateString(undefined, {
     month: "short",
     day: "numeric"
-  }), " · ", s.sets, " sets · ", fmtVol(s.volume), " kg")))));
+  }), " · ", s.sets, " sets · ", fmtVol(s.volume), " kg")), /*#__PURE__*/React.createElement("button", {
+    className: "sremove",
+    title: "Delete this session",
+    "aria-label": "Delete session",
+    onClick: () => {
+      const label = (program[s.dayKey] ? program[s.dayKey].name : s.dayKey) + " · " + new Date(s.date + "T00:00:00").toLocaleDateString(undefined, {
+        month: "short",
+        day: "numeric"
+      });
+      if (window.confirm("Delete this logged session?\n\n" + label + "\n\nThis removes it from your progress/charts and can't be undone.")) onDeleteSession(s.dayKey, s.date);
+    }
+  }, "🗑")))));
 }
 
 // ---- progress / charts -----------------------------------------------------
@@ -1603,6 +1625,24 @@ function App() {
     await store.set("cycleDays", newDays);
     await store.set("cyclePos", newPos);
   };
+  // delete a logged session (a date+day) from history — clears the stored
+  // progress/charts data for those exercises on that date.
+  const deleteSession = async (dayKey, date) => {
+    const newH = { ...history };
+    const prefix = `sets:${dayKey}:`;
+    for (const k of Object.keys(newH)) {
+      if (!k.startsWith(prefix)) continue;
+      const filtered = newH[k].filter(s => s.date !== date);
+      if (filtered.length) {
+        newH[k] = filtered;
+        await store.set(k, filtered);
+      } else {
+        delete newH[k];
+        await store.del(k);
+      }
+    }
+    setHistory(newH);
+  };
   const exportData = () => {
     const blob = new Blob([JSON.stringify({
       program,
@@ -1656,7 +1696,8 @@ function App() {
     history: history,
     onStart: k => setActive(k),
     onRemoveDay: removeDay,
-    onAddDay: addDay
+    onAddDay: addDay,
+    onDeleteSession: deleteSession
   }), view === "progress" && /*#__PURE__*/React.createElement(Progress, {
     history: history
   }), view === "edit" && /*#__PURE__*/React.createElement(Editor, {
@@ -1695,7 +1736,8 @@ main{padding:14px 18px 40px;}
 .stat-num{font-size:22px;font-weight:850;letter-spacing:-0.02em;}
 .stat-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em;text-align:center;}
 .slog{margin-top:22px;}
-.slog-row{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-top:8px;}
+.slog-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:12px 14px;background:var(--surface);border:1px solid var(--line);border-radius:12px;margin-top:8px;}
+.slog-info{display:flex;flex-direction:column;gap:2px;min-width:0;}
 .slog-name{font-size:14px;font-weight:750;}
 .slog-meta{font-size:11px;color:var(--muted);}
 .donestats{display:flex;gap:10px;margin:18px 0;}
