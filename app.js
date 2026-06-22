@@ -246,6 +246,63 @@ const DEFAULT_PROGRAM = {
       demo: "row"
     }],
     exercises: [{
+      id: "deadlift",
+      name: "Deadlift",
+      cue: "Flat back, drive floor",
+      demo: "hinge",
+      sets: [{
+        warmup: true,
+        weight: 60,
+        reps: 10,
+        rest: 120
+      }, {
+        weight: 70,
+        reps: 8,
+        rest: 150
+      }]
+    }, {
+      id: "cable_row",
+      name: "Cable Row",
+      cue: "Pull to torso, squeeze",
+      demo: "row",
+      sets: [{
+        warmup: true,
+        weight: 30,
+        reps: 12,
+        rest: 60
+      }, {
+        weight: 35,
+        reps: 10,
+        rest: 90
+      }, {
+        weight: 45,
+        reps: 10,
+        rest: 90
+      }, {
+        weight: 40,
+        reps: 10,
+        rest: 90
+      }]
+    }, {
+      id: "lat_work",
+      name: "Lat Pull / Pulldown",
+      cue: "Ring on grippy side",
+      demo: "pulldown",
+      sets: [{
+        warmup: true,
+        weight: 0,
+        reps: 10,
+        rest: 45
+      }, {
+        weight: 15,
+        reps: 10,
+        rest: 75
+      }, {
+        weight: 20,
+        reps: 8,
+        rest: 75
+      }]
+    }, {
       id: "spider_curls",
       name: "Spider Curls",
       cue: "38° bench, chest on top",
@@ -330,63 +387,6 @@ const DEFAULT_PROGRAM = {
         weight: 25,
         reps: 6,
         rest: 60
-      }]
-    }, {
-      id: "deadlift",
-      name: "Deadlift",
-      cue: "Flat back, drive floor",
-      demo: "hinge",
-      sets: [{
-        warmup: true,
-        weight: 60,
-        reps: 10,
-        rest: 120
-      }, {
-        weight: 70,
-        reps: 8,
-        rest: 150
-      }]
-    }, {
-      id: "cable_row",
-      name: "Cable Row",
-      cue: "Pull to torso, squeeze",
-      demo: "row",
-      sets: [{
-        warmup: true,
-        weight: 30,
-        reps: 12,
-        rest: 60
-      }, {
-        weight: 35,
-        reps: 10,
-        rest: 90
-      }, {
-        weight: 45,
-        reps: 10,
-        rest: 90
-      }, {
-        weight: 40,
-        reps: 10,
-        rest: 90
-      }]
-    }, {
-      id: "lat_work",
-      name: "Lat Pull / Pulldown",
-      cue: "Ring on grippy side",
-      demo: "pulldown",
-      sets: [{
-        warmup: true,
-        weight: 0,
-        reps: 10,
-        rest: 45
-      }, {
-        weight: 15,
-        reps: 10,
-        rest: 75
-      }, {
-        weight: 20,
-        reps: 8,
-        rest: 75
       }]
     }],
     stretches: []
@@ -620,7 +620,7 @@ const PPL = ["push", "pull", "legs"];
 // Bump when DEFAULT_PROGRAM changes structurally. A saved program with an older
 // (or missing) version stamp is treated as stale and replaced with the built-in
 // one, so structural fixes (rest timers, warm-up/working splits) always reach you.
-const PROGRAM_VERSION = 2;
+const PROGRAM_VERSION = 3;
 
 // ---- storage helpers -------------------------------------------------------
 const store = {
