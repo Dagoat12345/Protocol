@@ -617,6 +617,10 @@ const DEFAULT_PROGRAM = {
   }
 };
 const PPL = ["push", "pull", "legs"];
+// Bump when DEFAULT_PROGRAM changes structurally. A saved program with an older
+// (or missing) version stamp is treated as stale and replaced with the built-in
+// one, so structural fixes (rest timers, warm-up/working splits) always reach you.
+const PROGRAM_VERSION = 2;
 
 // ---- storage helpers -------------------------------------------------------
 const store = {
@@ -1467,7 +1471,16 @@ function Editor({
     key: d,
     className: "daytab" + (d === dayKey ? " active" : ""),
     onClick: () => setDayKey(d)
-  }, program[d].name))), day.exercises.map((ex, ei) => /*#__PURE__*/React.createElement("div", {
+  }, program[d].name))), /*#__PURE__*/React.createElement("button", {
+    className: "ed-reset",
+    onClick: () => {
+      if (window.confirm("Reset " + day.name + " to the default program?\n\nThis restores the original exercises, sets, reps and rest timers for this day. Your other days are untouched.")) {
+        const copy = JSON.parse(JSON.stringify(program));
+        copy[dayKey] = JSON.parse(JSON.stringify(DEFAULT_PROGRAM[dayKey]));
+        onChange(copy);
+      }
+    }
+  }, "↺ Reset ", day.name, " to default"), day.exercises.map((ex, ei) => /*#__PURE__*/React.createElement("div", {
     key: ex.id,
     className: "ed-ex"
   }, /*#__PURE__*/React.createElement("input", {
@@ -1547,7 +1560,13 @@ function App() {
   useEffect(() => {
     (async () => {
       const savedProg = await store.get("program");
-      if (savedProg) setProgram(savedProg);
+      const savedVer = await store.get("programVersion");
+      // only honor a saved program if it matches the current structure version;
+      // otherwise it's stale (e.g. missing rest timers) — fall back to the built-in.
+      if (savedProg && savedVer === PROGRAM_VERSION) setProgram(savedProg);else if (savedProg) {
+        await store.del("program");
+        await store.del("programVersion");
+      }
       const savedPos = await store.get("cyclePos");
       if (typeof savedPos === "number") setCyclePos(savedPos);
       const savedDays = await store.get("cycleDays");
@@ -1574,6 +1593,7 @@ function App() {
   const saveProgram = async p => {
     setProgram(p);
     await store.set("program", p);
+    await store.set("programVersion", PROGRAM_VERSION);
   };
   const saveSession = async (logged, durationS) => {
     const dayKey = active;
@@ -1731,6 +1751,7 @@ main{padding:14px 18px 40px;}
 .srow-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .sremove{background:transparent;border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;}
 .removed-cycle{margin-top:18px;}
+.ed-reset{width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);padding:11px;border-radius:10px;font-weight:700;font-size:13px;cursor:pointer;margin-bottom:14px;}
 .statbar{display:flex;gap:10px;margin:14px 0 4px;}
 .stat{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px 6px;display:flex;flex-direction:column;align-items:center;gap:3px;}
 .stat-num{font-size:22px;font-weight:850;letter-spacing:-0.02em;}
