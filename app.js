@@ -993,6 +993,34 @@ function RestTimer({
   const mm = Math.floor(Math.max(left, 0) / 60);
   const ss = String(Math.max(left, 0) % 60).padStart(2, "0");
   const done = left <= 0;
+  // state-aware lock-screen alarm control. Note: once permission is "denied"
+  // the browser will NOT re-prompt — it must be re-enabled in iOS Settings.
+  const perm = pushPermission();
+  let alarmEl = null;
+  if (pushConfigured()) {
+    if (perm === "granted") {
+      alarmEl = /*#__PURE__*/React.createElement("button", {
+        className: "rest-enable",
+        onClick: () => schedulePush(3, "Test alarm 🔔", "Lock-screen alarms are working.")
+      }, "Send test alarm (3s)");
+    } else if (perm === "denied") {
+      alarmEl = /*#__PURE__*/React.createElement("p", {
+        className: "rest-blocked"
+      }, "🔕 Notifications are blocked. Turn them on in iPhone Settings → Notifications → Protocol → Allow Notifications, then reopen the app.");
+    } else if (perm === "default") {
+      alarmEl = /*#__PURE__*/React.createElement("button", {
+        className: "rest-enable",
+        onClick: async () => {
+          const ok = await requestPushPermission();
+          if (ok) schedulePush(Math.max(left, 1), "Rest's up", "Time for your next set 💪");
+        }
+      }, "🔔 Alarm me on the lock screen");
+    } else {
+      alarmEl = /*#__PURE__*/React.createElement("p", {
+        className: "rest-blocked"
+      }, "Open Protocol from your home screen (not Safari) to enable lock-screen alarms.");
+    }
+  }
   return /*#__PURE__*/React.createElement("div", {
     className: "step-rest"
   }, /*#__PURE__*/React.createElement("div", {
@@ -1017,13 +1045,7 @@ function RestTimer({
       cancelPush();
       onDone();
     }
-  }, done ? "Next set" : "Skip")), pushConfigured() && pushPermission() !== "granted" && /*#__PURE__*/React.createElement("button", {
-    className: "rest-enable",
-    onClick: async () => {
-      const ok = await requestPushPermission();
-      if (ok) schedulePush(Math.max(left, 1), "Rest's up", "Time for your next set 💪");
-    }
-  }, "🔔 Alarm me on the lock screen"));
+  }, done ? "Next set" : "Skip")), alarmEl);
 }
 
 // ---- guided session --------------------------------------------------------
@@ -1911,6 +1933,7 @@ main{padding:14px 18px 40px;}
 .rest-controls button{background:var(--surface-2);border:1px solid var(--line);color:var(--text);padding:13px 26px;border-radius:100px;font-weight:700;cursor:pointer;}
 .rest-skip{background:var(--accent)!important;color:var(--bg)!important;border:none!important;}
 .rest-enable{display:block;margin:16px auto 0;background:transparent;border:1px solid var(--accent);color:var(--accent);padding:11px 20px;border-radius:100px;font-weight:700;font-size:13px;cursor:pointer;}
+.rest-blocked{margin:16px auto 0;max-width:300px;color:var(--muted);font-size:12px;line-height:1.45;text-align:center;}
 .progress,.editor{padding-top:6px;}
 .ex-select{width:100%;background:var(--surface);border:1px solid var(--line);color:var(--text);padding:12px;border-radius:12px;font-size:15px;font-weight:600;margin-bottom:14px;}
 .pr{background:var(--surface-2);border:1px solid var(--accent);border-radius:12px;padding:12px 14px;font-weight:800;margin-bottom:10px;}
