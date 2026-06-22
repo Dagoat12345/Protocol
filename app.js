@@ -917,6 +917,7 @@ function RestTimer({
   seconds,
   onDone
 }) {
+  const endRef = useRef(Date.now() + seconds * 1000); // wall-clock target end
   const [left, setLeft] = useState(seconds);
   const wakeRef = useRef(null);
   const firedRef = useRef(false);
@@ -941,42 +942,53 @@ function RestTimer({
       cancelPush();
     };
   }, []);
+  // drive the countdown from the wall clock and re-sync the instant the app
+  // returns to the foreground. iOS freezes JS timers while the phone is locked,
+  // so a plain per-second tick drifts; this snaps to the true remaining time.
   useEffect(() => {
-    if (left <= 0) {
-      if (!firedRef.current) {
-        firedRef.current = true;
-        // if you're watching in-app, the beep is enough — drop the queued push
-        try {
-          if (typeof document !== "undefined" && !document.hidden) cancelPush();
-        } catch {}
-        // vibration
-        try {
-          if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
-        } catch {}
-        // beep via WebAudio (no asset needed)
-        try {
-          const Ctx = window.AudioContext || window.webkitAudioContext;
-          const ctx = new Ctx();
-          const beep = (t, f) => {
-            const o = ctx.createOscillator();
-            const g = ctx.createGain();
-            o.frequency.value = f;
-            o.connect(g);
-            g.connect(ctx.destination);
-            g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
-            g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + t + 0.02);
-            g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.25);
-            o.start(ctx.currentTime + t);
-            o.stop(ctx.currentTime + t + 0.26);
-          };
-          beep(0, 880);
-          beep(0.3, 1170);
-        } catch {}
-      }
-      return;
+    const sync = () => setLeft(Math.max(0, Math.round((endRef.current - Date.now()) / 1000)));
+    sync();
+    const iv = setInterval(sync, 250);
+    const onVis = () => {
+      if (!document.hidden) sync();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      clearInterval(iv);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, []);
+  useEffect(() => {
+    if (left <= 0 && !firedRef.current) {
+      firedRef.current = true;
+      // if you're watching in-app, the beep is enough — drop the queued push
+      try {
+        if (typeof document !== "undefined" && !document.hidden) cancelPush();
+      } catch {}
+      // vibration
+      try {
+        if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
+      } catch {}
+      // beep via WebAudio (no asset needed)
+      try {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        const ctx = new Ctx();
+        const beep = (t, f) => {
+          const o = ctx.createOscillator();
+          const g = ctx.createGain();
+          o.frequency.value = f;
+          o.connect(g);
+          g.connect(ctx.destination);
+          g.gain.setValueAtTime(0.0001, ctx.currentTime + t);
+          g.gain.exponentialRampToValueAtTime(0.4, ctx.currentTime + t + 0.02);
+          g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + t + 0.25);
+          o.start(ctx.currentTime + t);
+          o.stop(ctx.currentTime + t + 0.26);
+        };
+        beep(0, 880);
+        beep(0.3, 1170);
+      } catch {}
     }
-    const t = setTimeout(() => setLeft(l => l - 1), 1000);
-    return () => clearTimeout(t);
   }, [left]);
   const mm = Math.floor(Math.max(left, 0) / 60);
   const ss = String(Math.max(left, 0) % 60).padStart(2, "0");
@@ -994,11 +1006,10 @@ function RestTimer({
   }, /*#__PURE__*/React.createElement("button", {
     onClick: () => {
       firedRef.current = false;
-      setLeft(l => {
-        const v = l + 30;
-        schedulePush(v, "Rest's up", "Time for your next set 💪");
-        return v;
-      });
+      endRef.current += 30000;
+      const rem = Math.max(1, Math.round((endRef.current - Date.now()) / 1000));
+      setLeft(rem);
+      schedulePush(rem, "Rest's up", "Time for your next set 💪");
     }
   }, "+30s"), /*#__PURE__*/React.createElement("button", {
     className: "rest-skip",
