@@ -59,6 +59,19 @@ if (!window.storage) {
 }
 </script>
 
+<!-- Firebase Auth (Google sign-in gate). Config values are public client config. -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script>
+  window.FIREBASE_CONFIG = {
+    apiKey: "AIzaSyASW0k4SxtgqnJXJ3O4e35NRV4Jgk70bUE",
+    authDomain: "protocol-pwa-3539.firebaseapp.com",
+    projectId: "protocol-pwa-3539",
+    appId: "1:455464457443:web:c1adf5ca6f245d4adda1d6",
+    messagingSenderId: "455464457443"
+  };
+</script>
+
 <!-- the app -->
 <script src="app.js"></script>
 

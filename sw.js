@@ -1,6 +1,6 @@
 // Protocol service worker — offline caching.
 // Bump CACHE version whenever you change app files so clients update.
-const CACHE = "protocol-v9";
+const CACHE = "protocol-v10";
 
 // App shell + CDN libs. Videos are cached on first play (runtime cache below).
 const SHELL = [
@@ -13,6 +13,8 @@ const SHELL = [
   "https://unpkg.com/react@18/umd/react.production.min.js",
   "https://unpkg.com/react-dom@18/umd/react-dom.production.min.js",
   "https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js",
+  "https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js",
+  "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js",
 ];
 
 self.addEventListener("install", (e) => {

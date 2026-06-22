@@ -1538,7 +1538,9 @@ function Editor({
 // ============================================================================
 // ROOT
 // ============================================================================
-function App() {
+function App({
+  onSignOut
+}) {
   const [program, setProgram] = useState(DEFAULT_PROGRAM);
   const [history, setHistory] = useState({});
   const [cyclePos, setCyclePos] = useState(0); // index into cycleDays: which workout is up next
@@ -1700,10 +1702,15 @@ function App() {
     className: "mark"
   }, "▲"), /*#__PURE__*/React.createElement("span", {
     className: "bname"
-  }, "PROTOCOL")), /*#__PURE__*/React.createElement("button", {
+  }, "PROTOCOL")), /*#__PURE__*/React.createElement("div", {
+    className: "topbar-actions"
+  }, /*#__PURE__*/React.createElement("button", {
     className: "export",
     onClick: exportData
-  }, "Export")), /*#__PURE__*/React.createElement("nav", {
+  }, "Export"), onSignOut && /*#__PURE__*/React.createElement("button", {
+    className: "export",
+    onClick: onSignOut
+  }, "Sign out"))), /*#__PURE__*/React.createElement("nav", {
     className: "tabs"
   }, [["schedule", "Today"], ["progress", "Progress"], ["edit", "Edit"]].map(([k, l]) => /*#__PURE__*/React.createElement("button", {
     key: k,
@@ -1727,7 +1734,7 @@ function App() {
 }
 const CSS = `
 * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; margin:0; padding:0; }
-.app,.session { --bg:#0c0d10; --surface:#15171c; --surface-2:#1c1f26; --line:#2a2e38; --text:#f2f3f5; --muted:#888e9c; --aesthetic:#c7b3ff; --power:#d8ff3e; --accent:var(--aesthetic);
+.app,.session,.gate { --bg:#0c0d10; --surface:#15171c; --surface-2:#1c1f26; --line:#2a2e38; --text:#f2f3f5; --muted:#888e9c; --aesthetic:#c7b3ff; --power:#d8ff3e; --accent:var(--aesthetic);
   min-height:100vh; background:var(--bg); color:var(--text); font-family:'Inter',system-ui,sans-serif; max-width:520px; margin:0 auto; }
 .accent-power{--accent:var(--power);} .accent-aesthetic{--accent:var(--aesthetic);}
 .loading{display:flex;align-items:center;justify-content:center;min-height:100vh;color:var(--muted);}
@@ -1812,5 +1819,111 @@ main{padding:14px 18px 40px;}
 .ed-del{background:var(--surface-2);border:1px solid var(--line);color:var(--muted);width:30px;height:30px;border-radius:8px;cursor:pointer;flex-shrink:0;}
 .ed-add{background:transparent;border:1px dashed var(--line);color:var(--accent);width:100%;padding:9px;border-radius:8px;font-weight:700;cursor:pointer;margin-top:4px;}
 @media (prefers-reduced-motion: reduce){*{animation:none!important;}}
+.topbar-actions{display:flex;gap:8px;align-items:center;}
+.gate{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;background:var(--bg);}
+.gate-card{width:100%;max-width:360px;background:var(--surface);border:1px solid var(--line);border-radius:20px;padding:36px 28px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:12px;}
+.gate-mark{font-size:34px;color:var(--accent);}
+.gate-title{font-size:24px;font-weight:850;letter-spacing:0.04em;}
+.gate-sub{color:var(--muted);font-size:14px;line-height:1.4;}
+.gate-btn{margin-top:8px;background:var(--accent);color:var(--bg);border:none;border-radius:100px;padding:14px 26px;font-weight:800;font-size:15px;cursor:pointer;}
+.gate-err{color:var(--power);font-size:12px;margin-top:4px;word-break:break-word;}
 `;
-ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(App));
+// inject styles once at load so the auth gate (which renders before <App/>)
+// is styled too, not just the main app.
+(function injectStyles() {
+  if (!document.getElementById("protocol-styles")) {
+    const tag = document.createElement("style");
+    tag.id = "protocol-styles";
+    tag.textContent = CSS;
+    document.head.appendChild(tag);
+  }
+})();
+
+// ---- auth gate: Google sign-in, single allowed account --------------------
+const ALLOWED_EMAIL = "kabirtkhan@gmail.com";
+function AuthGate() {
+  const [phase, setPhase] = useState("loading"); // loading | signedout | denied | ok
+  const [email, setEmail] = useState(null);
+  const [err, setErr] = useState(null);
+  useEffect(() => {
+    if (!window.firebase || !window.FIREBASE_CONFIG) {
+      setErr("Sign-in is not configured yet.");
+      setPhase("signedout");
+      return;
+    }
+    if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+    const auth = firebase.auth();
+    auth.getRedirectResult().catch(e => setErr(e && e.message || String(e)));
+    const unsub = auth.onAuthStateChanged(user => {
+      if (!user) {
+        setEmail(null);
+        setPhase("signedout");
+        return;
+      }
+      if ((user.email || "").toLowerCase() === ALLOWED_EMAIL) {
+        setEmail(user.email);
+        setPhase("ok");
+      } else {
+        setEmail(user.email);
+        setPhase("denied");
+        auth.signOut().catch(() => {});
+      }
+    });
+    return unsub;
+  }, []);
+  const signIn = async () => {
+    setErr(null);
+    const provider = new firebase.auth.GoogleAuthProvider();
+    provider.setCustomParameters({ prompt: "select_account" });
+    try {
+      await firebase.auth().signInWithPopup(provider);
+    } catch (e) {
+      const code = e && (e.code || e.message) || "";
+      if (/popup|operation-not-supported|cancelled|disallowed|blocked/i.test(code)) {
+        try {
+          await firebase.auth().signInWithRedirect(provider);
+        } catch (e2) {
+          setErr(e2 && e2.message || String(e2));
+        }
+      } else {
+        setErr(e && e.message || String(e));
+      }
+    }
+  };
+  const signOut = () => firebase.auth().signOut();
+  if (phase === "ok") return /*#__PURE__*/React.createElement(App, {
+    onSignOut: signOut,
+    account: email
+  });
+  const shell = children => /*#__PURE__*/React.createElement("div", {
+    className: "gate"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "gate-card"
+  }, children));
+  if (phase === "loading") return shell([/*#__PURE__*/React.createElement("span", {
+    className: "gate-mark",
+    key: "m"
+  }, "▲"), /*#__PURE__*/React.createElement("p", {
+    className: "gate-sub",
+    key: "s"
+  }, "Loading…")]);
+  const denied = phase === "denied";
+  return shell([/*#__PURE__*/React.createElement("span", {
+    className: "gate-mark",
+    key: "m"
+  }, "▲"), /*#__PURE__*/React.createElement("h1", {
+    className: "gate-title",
+    key: "t"
+  }, denied ? "Not authorized" : "PROTOCOL"), /*#__PURE__*/React.createElement("p", {
+    className: "gate-sub",
+    key: "s"
+  }, denied ? (email ? email + " can't access this app." : "This account can't access this app.") : "Private app. Sign in to continue."), /*#__PURE__*/React.createElement("button", {
+    className: "gate-btn",
+    key: "b",
+    onClick: signIn
+  }, denied ? "Use a different account" : "Sign in with Google"), err && /*#__PURE__*/React.createElement("p", {
+    className: "gate-err",
+    key: "e"
+  }, err)]);
+}
+ReactDOM.createRoot(document.getElementById("root")).render(React.createElement(AuthGate));
