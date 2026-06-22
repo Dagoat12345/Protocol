@@ -999,10 +999,7 @@ function RestTimer({
   let alarmEl = null;
   if (pushConfigured()) {
     if (perm === "granted") {
-      alarmEl = /*#__PURE__*/React.createElement("button", {
-        className: "rest-enable",
-        onClick: () => schedulePush(3, "Test alarm 🔔", "Lock-screen alarms are working.")
-      }, "Send test alarm (3s)");
+      alarmEl = null; // alarm is on; the rest-note already confirms it
     } else if (perm === "denied") {
       alarmEl = /*#__PURE__*/React.createElement("p", {
         className: "rest-blocked"
