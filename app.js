@@ -1132,14 +1132,34 @@ function Session({
   dayKey,
   day,
   history,
+  resume,
   onSave,
   onExit
 }) {
   const steps = useMemo(() => buildSteps(day), [day]);
-  const [i, setI] = useState(0);
-  const [logged, setLogged] = useState({}); // exId -> [{weight,reps,feeling}]
+  const [i, setI] = useState(resume && typeof resume.i === "number" ? resume.i : 0);
+  const [logged, setLogged] = useState(resume && resume.logged ? resume.logged : {}); // exId -> [{weight,reps,feeling}]
   const [summary, setSummary] = useState(null); // computed at finish for the done screen
   const startRef = useRef(Date.now());
+  // continuously persist an in-progress draft so a crash, close, or lock never
+  // loses what you've entered — you resume exactly where you left off.
+  useEffect(() => {
+    if (steps[i] && steps[i].type === "done") return; // finished — not resumable
+    store.set("session:draft", { dayKey, i, logged, ts: Date.now() });
+  }, [i, logged, dayKey, steps]);
+  useEffect(() => {
+    const flush = () => {
+      try {
+        if (steps[i] && steps[i].type !== "done") store.set("session:draft", { dayKey, i, logged, ts: Date.now() });
+      } catch (_) {}
+    };
+    window.addEventListener("pagehide", flush);
+    document.addEventListener("visibilitychange", flush);
+    return () => {
+      window.removeEventListener("pagehide", flush);
+      document.removeEventListener("visibilitychange", flush);
+    };
+  }, [i, logged, dayKey, steps]);
   const step = steps[i];
   const next = useCallback(() => setI(x => Math.min(x + 1, steps.length - 1)), [steps.length]);
   const back = useCallback(() => setI(x => Math.max(x - 1, 0)), []);
@@ -1179,6 +1199,7 @@ function Session({
     }
     setSummary({ volume, setCount, prs, durationS });
     await onSave(logged, durationS);
+    await store.del("session:draft"); // finished — no longer resumable
     next();
   };
   let body;
@@ -1382,7 +1403,10 @@ function Schedule({
   cyclePos,
   cycleDays,
   history,
+  draft,
   onStart,
+  onResume,
+  onDiscardDraft,
   onRemoveDay,
   onAddDay,
   onDeleteSession
@@ -1390,6 +1414,27 @@ function Schedule({
   // Rolling queue over the ACTIVE days. Position 0 is up next; the rest show
   // the order ahead. Days can be dropped from the cycle (✕) and added back.
   const days = cycleDays && cycleDays.length ? cycleDays : PPL;
+  const draftSets = draft && draft.logged ? Object.values(draft.logged).reduce((a, arr) => a + (arr || []).filter(Boolean).length, 0) : 0;
+  const resumeCard = draft && program[draft.dayKey] ? /*#__PURE__*/React.createElement("div", {
+    className: "resume-card"
+  }, /*#__PURE__*/React.createElement("div", {
+    className: "resume-info"
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "resume-eyebrow"
+  }, "⏸ Unfinished session"), /*#__PURE__*/React.createElement("span", {
+    className: "resume-title"
+  }, program[draft.dayKey].name, draftSets ? ` · ${draftSets} set${draftSets === 1 ? "" : "s"} logged` : "")), /*#__PURE__*/React.createElement("div", {
+    className: "resume-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "sgo",
+    onClick: onResume
+  }, "Resume"), /*#__PURE__*/React.createElement("button", {
+    className: "sremove",
+    title: "Discard this session",
+    onClick: () => {
+      if (window.confirm("Discard your unfinished " + program[draft.dayKey].name + " session? The numbers you logged in it will be lost.")) onDiscardDraft();
+    }
+  }, "✕"))) : null;
   const len = days.length;
   const order = days.map((_, i) => days[(cyclePos + i) % len]);
   const removed = PPL.filter(k => !days.includes(k));
@@ -1408,7 +1453,7 @@ function Schedule({
     className: "big-title"
   }, "Your cycle"), /*#__PURE__*/React.createElement("p", {
     className: "muted"
-  }, days.map(k => program[k].name).join(" → "), ", on repeat. Train any day — just keep the order."), /*#__PURE__*/React.createElement("div", {
+  }, days.map(k => program[k].name).join(" → "), ", on repeat. Train any day — just keep the order."), resumeCard, /*#__PURE__*/React.createElement("div", {
     className: "statbar"
   }, stat((stats.streak > 0 ? "🔥 " : "") + stats.streak, "day streak"), stat(stats.weekCount, "this week"), stat(fmtVol(stats.weekVolume), "kg this wk")), order.map((key, i) => {
     const p = program[key];
@@ -1714,6 +1759,8 @@ function App({
   const [cycleDays, setCycleDays] = useState(PPL); // active days in the rotation (subset of PPL, in order)
   const [view, setView] = useState("schedule"); // schedule | progress | edit
   const [active, setActive] = useState(null);
+  const [draft, setDraft] = useState(null); // unfinished session saved to storage
+  const [resumeData, setResumeData] = useState(null); // {i, logged} restored into Session
   const [ready, setReady] = useState(false);
 
   // inject styles into <head> ONCE so they apply to every return path
@@ -1750,6 +1797,8 @@ function App({
         if (v) h[k] = v;
       }
       setHistory(h);
+      const d = await store.get("session:draft");
+      if (d && d.dayKey && (d.i > 0 || d.logged && Object.keys(d.logged).length)) setDraft(d);
       // load chart.js
       if (!window.Chart) {
         const s = document.createElement("script");
@@ -1846,6 +1895,32 @@ function App({
     a.click();
     URL.revokeObjectURL(url);
   };
+  // start a day: if there's an unfinished draft for it, resume rather than
+  // overwrite (so you can't accidentally wipe in-progress numbers).
+  const startDay = key => {
+    if (draft && draft.dayKey === key) {
+      setResumeData({ i: draft.i, logged: draft.logged });
+    } else {
+      setResumeData(null);
+    }
+    setActive(key);
+  };
+  const resumeSession = () => {
+    if (!draft) return;
+    setResumeData({ i: draft.i, logged: draft.logged });
+    setActive(draft.dayKey);
+  };
+  const discardDraft = async () => {
+    await store.del("session:draft");
+    setDraft(null);
+  };
+  const leaveSession = async () => {
+    setActive(null);
+    setResumeData(null);
+    setView("schedule");
+    const d = await store.get("session:draft"); // re-read so the resume banner reflects reality
+    setDraft(d && d.dayKey && (d.i > 0 || d.logged && Object.keys(d.logged).length) ? d : null);
+  };
   if (!ready) return /*#__PURE__*/React.createElement("div", {
     className: "app loading"
   }, "Loading…");
@@ -1853,11 +1928,9 @@ function App({
     dayKey: active,
     day: program[active],
     history: history,
+    resume: resumeData,
     onSave: saveSession,
-    onExit: () => {
-      setActive(null);
-      setView("schedule");
-    }
+    onExit: leaveSession
   });
   return /*#__PURE__*/React.createElement("div", {
     className: "app accent-aesthetic"
@@ -1888,7 +1961,10 @@ function App({
     cyclePos: cyclePos,
     cycleDays: cycleDays,
     history: history,
-    onStart: k => setActive(k),
+    draft: draft,
+    onStart: startDay,
+    onResume: resumeSession,
+    onDiscardDraft: discardDraft,
     onRemoveDay: removeDay,
     onAddDay: addDay,
     onDeleteSession: deleteSession
@@ -1936,6 +2012,11 @@ main{padding:16px 18px 44px;}
 .sremove{background:transparent;border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;cursor:pointer;font-size:13px;line-height:1;flex-shrink:0;}
 .removed-cycle{margin-top:20px;}
 .ed-reset{font-family:var(--mono);width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--muted);padding:11px;border-radius:10px;font-weight:600;font-size:12px;letter-spacing:0.04em;cursor:pointer;margin-bottom:14px;}
+.resume-card{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding:14px 16px;background:linear-gradient(180deg,var(--surface-2),var(--surface));border:1px solid var(--accent);border-radius:15px;box-shadow:0 0 0 1px var(--accent),0 16px 36px -22px var(--glow);}
+.resume-info{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.resume-eyebrow{font-family:var(--mono);font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);}
+.resume-title{font-family:var(--display);font-size:16px;font-weight:800;}
+.resume-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;}
 .statbar{display:flex;gap:9px;margin:16px 0 4px;}
 .stat{flex:1;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:15px 6px;display:flex;flex-direction:column;align-items:center;gap:4px;}
 .stat-num{font-family:var(--mono);font-size:23px;font-weight:700;letter-spacing:-0.02em;font-variant-numeric:tabular-nums;}
@@ -2038,21 +2119,36 @@ function AuthGate() {
   const [email, setEmail] = useState(null);
   const [err, setErr] = useState(null);
   useEffect(() => {
-    if (!window.firebase || !window.FIREBASE_CONFIG) {
-      setErr("Sign-in is not configured yet.");
-      setPhase("signedout");
+    const authedBefore = localStorage.getItem("protocol_authed");
+    // Offline + previously signed in → let the legit user straight in (Firebase
+    // can't reach the network to confirm, but it's their device). Works like Notes.
+    if (!navigator.onLine && authedBefore) {
+      setPhase("ok");
       return;
     }
+    if (!window.firebase || !window.FIREBASE_CONFIG) {
+      // no SDK (e.g. offline first load) but previously authed → don't lock them out
+      if (authedBefore) setPhase("ok");else {
+        setErr("Sign-in is not configured yet.");
+        setPhase("signedout");
+      }
+      return;
+    }
+    // Safety: if a previously-authed user is stuck loading (flaky network),
+    // let them in after a moment rather than hanging on a spinner.
+    const fallback = authedBefore ? setTimeout(() => setPhase(p => p === "loading" ? "ok" : p), 4000) : null;
     if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
     const auth = firebase.auth();
     auth.getRedirectResult().catch(e => setErr(e && e.message || String(e)));
     const unsub = auth.onAuthStateChanged(user => {
       if (!user) {
         setEmail(null);
-        setPhase("signedout");
+        // offline grace: keep a previously-authed user in instead of bouncing them
+        if (!navigator.onLine && authedBefore) setPhase("ok");else setPhase("signedout");
         return;
       }
       if ((user.email || "").toLowerCase() === ALLOWED_EMAIL) {
+        localStorage.setItem("protocol_authed", user.email);
         setEmail(user.email);
         setPhase("ok");
       } else {
@@ -2061,7 +2157,10 @@ function AuthGate() {
         auth.signOut().catch(() => {});
       }
     });
-    return unsub;
+    return () => {
+      if (fallback) clearTimeout(fallback);
+      unsub();
+    };
   }, []);
   const signIn = async () => {
     setErr(null);
@@ -2082,7 +2181,12 @@ function AuthGate() {
       }
     }
   };
-  const signOut = () => firebase.auth().signOut();
+  const signOut = () => {
+    localStorage.removeItem("protocol_authed");
+    try {
+      if (window.firebase && firebase.apps.length) firebase.auth().signOut();
+    } catch (_) {}
+  };
   if (phase === "ok") return /*#__PURE__*/React.createElement(App, {
     onSignOut: signOut,
     account: email
